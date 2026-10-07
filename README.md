@@ -28,4 +28,11 @@ env: `PORT`(8792) `WORKER_PORT`(8793) `IMAGE_DEVICE`(고정하려면 cuda:N) `GP
 ## 주의
 실존 인물·유명인, 동의 없는 실제 사람 사진 편집, 사칭, 선정적인 그림은 만들지 마세요. 서버는 모든 요청에 NSFW 네거티브 프롬프트를 붙입니다.
 
-라이선스 MIT · 모델 Apache-2.0 — `NOTICE` 참고. © 2026 gggg8657
+## 출처·감사 (Credits)
+
+- 그리기 모델 [Qwen/Qwen-Image-2512](https://huggingface.co/Qwen/Qwen-Image-2512), 고치기 모델 [Qwen/Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) — Alibaba Qwen 팀, Apache-2.0 (가중치는 동봉하지 않음, 처음 쓸 때 Hugging Face 에서 받음)
+- 실행: [PyTorch](https://github.com/pytorch/pytorch) (BSD-3), [diffusers](https://github.com/huggingface/diffusers)·[transformers](https://github.com/huggingface/transformers)·[accelerate](https://github.com/huggingface/accelerate) (Apache-2.0), [Pillow](https://github.com/python-pillow/Pillow) (MIT-CMU)
+- **프롬프트 다듬기 LLM** — 기본 배포는 [Ollama](https://github.com/ollama/ollama) (MIT) 위의 Google [Gemma](https://ai.google.dev/gemma) `gemma4:31b` — 모델 이용 조건은 Gemma 배포처 참고.
+- 이 도구는 [agent-page-portal](https://github.com/gggg8657/agent-page-portal) 에 연결해 쓰도록 만들었습니다(단독 실행도 됨).
+
+라이선스 MIT · 저작권 표기·전체 목록은 `NOTICE` 를 보세요. © 2026 gggg8657
