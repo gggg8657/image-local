@@ -1,0 +1,16 @@
+image-local
+===========
+
+Original work (MIT).
+
+Models (not bundled — downloaded from Hugging Face on first use, ~58GB + ~58GB):
+  Qwen/Qwen-Image-2512       (https://huggingface.co/Qwen/Qwen-Image-2512, Apache-2.0) — text → image
+  Qwen/Qwen-Image-Edit-2509  (https://huggingface.co/Qwen/Qwen-Image-Edit-2509, Apache-2.0) — image editing
+Runtime: PyTorch (BSD-3), Hugging Face diffusers / transformers / accelerate (Apache-2.0), Pillow (MIT-CMU).
+LLM for prompt refinement (optional, not bundled): Ollama (MIT) serving Google Gemma (gemma4:31b — see Gemma's terms of use).
+
+Generated images: you are responsible for how you use them. Do not create images of real people without consent,
+impersonation, or sexual content; the server always adds an NSFW negative prompt.
+
+This package: Copyright (c) 2026 gggg8657 <dongjukim.dev@gmail.com>
+화면 하단·메타데이터의 저작자 표기는 지우거나 바꾸지 마세요.

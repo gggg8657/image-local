@@ -1,0 +1,7 @@
+_workspace/
+__pycache__/
+venv/
+.server.pid
+.worker.pid
+server.log
+worker.log

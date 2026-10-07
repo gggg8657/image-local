@@ -1,0 +1,6 @@
+# torch / torchvision 은 setup.sh 가 GPU 드라이버에 맞는 빌드로 따로 설치
+diffusers>=0.36
+transformers>=4.57
+accelerate
+safetensors
+pillow

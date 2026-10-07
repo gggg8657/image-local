@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>image local</title>
+<style>
+  :root{--bg:#fafaf8;--fg:#1f1f1f;--muted:#777;--line:#ddd;--acc:#2f6fed}
+  body{font:15px/1.65 -apple-system,"Pretendard","Apple SD Gothic Neo",system-ui,sans-serif;background:var(--bg);color:var(--fg);max-width:1100px;margin:0 auto;padding:20px 16px}
+  h1{font-size:20px;margin:0 44px 4px 0}h1 small{font-weight:400;color:var(--muted);font-size:13px}
+  .box{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px;margin:12px 0}
+  .box h3{margin:0 0 8px;font-size:14px}
+  textarea{width:100%;height:96px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:6px;box-sizing:border-box}
+  input[type=text],input[type=number]{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;box-sizing:border-box}
+  button{font:inherit;padding:6px 12px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer}button.primary{background:var(--acc);color:#fff;border-color:var(--acc);padding:7px 22px}button:disabled{opacity:.5}
+  select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff}
+  .tabs{display:flex;gap:6px;margin:14px 0 4px}.tabs button{border-radius:20px;padding:6px 16px}.tabs button.on{background:var(--fg);color:#fff;border-color:var(--fg)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}.chips button{border-radius:16px;padding:3px 12px;font-size:14px}.chips button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+  .opts{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:8px 0;font-size:14px}.opts label{display:flex;gap:6px;align-items:center}
+  .lbl{font-size:13px;color:var(--muted);margin-top:8px}
+  .note{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+  #status,.prog{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+  .bar{height:6px;background:#eee;border-radius:3px;overflow:hidden;margin:6px 0}.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
+  .results{display:flex;gap:12px;flex-wrap:wrap}.results figure{margin:0;flex:1;min-width:240px;max-width:520px}
+  .results img{width:100%;border-radius:8px;background:#eee;cursor:zoom-in}
+  .results figcaption{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.results figcaption button{font-size:13px;padding:3px 10px}
+  .srcs{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.srcs div{position:relative}.srcs img{height:120px;border-radius:6px;background:#eee}
+  .srcs button{position:absolute;top:4px;right:4px;padding:0 6px;font-size:13px;background:rgba(255,255,255,.9)}
+  .drop{border:2px dashed var(--line);border-radius:8px;padding:16px;text-align:center;color:var(--muted);font-size:14px;cursor:pointer}.drop.over{border-color:var(--acc);background:#f0f5ff}
+  .gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+  .gal .item{position:relative;font-size:12px;color:var(--muted)}.gal img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:#eee;cursor:pointer}
+  .gal .item p{margin:2px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gal .item .badge{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.55);color:#fff;border-radius:10px;padding:0 7px;font-size:11px}
+  #view{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:9;padding:16px;box-sizing:border-box}
+  #view.on{display:flex}#view .in{background:#fff;border-radius:10px;max-width:1000px;width:100%;max-height:100%;overflow:auto;padding:14px;box-sizing:border-box}
+  #view img{max-width:100%;max-height:70vh;display:block;margin:0 auto;border-radius:6px}
+  #view .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  #view .meta{font-size:13px;color:var(--muted);margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+  .warn{background:#fff7e6;border:1px solid #f0c36d;border-radius:8px;padding:8px 12px;font-size:13px}
+</style>
+</head>
+<body>
+<h1>image local <small>— 말로 그리고, 말로 고치는 그림 도구 · 전부 이 서버 GPU (Qwen-Image)</small></h1>
+<div id="status">상태 확인 중…</div>
+
+<div class="tabs"><button id="t-gen" class="on" onclick="tab('gen')">🎨 그리기</button><button id="t-edit" onclick="tab('edit')">✏️ 고치기</button></div>
+
+<div id="p-gen" class="box">
+  <textarea id="prompt" placeholder="무엇을 그릴까요? 한국어로 편하게 쓰세요.&#10;예) 비 오는 밤 서울 골목의 작은 우동집, 따뜻한 불빛, 창문에 김이 서림&#10;예) 원자력 안전 캠페인 포스터, 제목 &quot;안전이 먼저입니다&quot;, 파란 톤&#10;그림 안에 넣을 글자는 따옴표로 감싸 주세요."></textarea>
+  <div class="lbl">스타일</div><div class="chips" id="styles"></div>
+  <div class="lbl">비율</div><div class="chips" id="ratios"></div>
+  <div class="opts">
+    <label>장수 <select id="n"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+    <label>품질 <select id="quality"></select></label>
+    <label title="같은 번호면 같은 그림이 나옵니다. 비우면 매번 새로"># <input type="number" id="seed" placeholder="무작위" style="width:120px"></label>
+    <label title="짧은 한국어 요청을 그림 모델이 잘 알아듣는 자세한 영어 프롬프트로 바꿔 줍니다"><input type="checkbox" id="enhance" checked> 프롬프트 다듬기(LLM)</label>
+  </div>
+  <details><summary class="note" style="cursor:pointer">빼고 싶은 것 (선택)</summary><input type="text" id="neg" placeholder="예) 글자, 워터마크, 흐릿함" style="width:100%;margin-top:6px"></details>
+  <p><button class="primary" id="go-gen" onclick="gen()">그리기</button> <span class="note">1장 약 30초~1분 · 처음 한 번은 모델을 올리느라 1~2분 더</span></p>
+  <div id="gen-prog" class="prog"></div><div class="bar" id="gen-bar" hidden><i></i></div>
+  <div id="gen-final" class="note"></div>
+  <div class="results" id="gen-out"></div>
+</div>
+
+<div id="p-edit" class="box" hidden>
+  <div class="drop" id="drop" onclick="$('file').click()">여기에 그림을 끌어다 놓거나 눌러서 고르세요 (1~3장 · png/jpg/webp)<br><span class="note">갤러리의 그림은 "이걸로 고치기" 를 누르면 여기로 옵니다 · 여러 장이면 "1번 사람에게 2번 옷을 입혀 줘" 처럼 합칠 수 있어요</span></div>
+  <input type="file" id="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+  <div class="srcs" id="srcs"></div>
+  <textarea id="instr" placeholder="어떻게 고칠까요?&#10;예) 배경을 눈 내리는 겨울 숲으로 바꿔 줘&#10;예) 간판 글자를 &quot;카에리 카페&quot;로 바꿔 줘&#10;예) 수채화 느낌으로 바꿔 줘 / 고양이를 지워 줘 / 사람이 웃고 있게"></textarea>
+  <div class="opts">
+    <label>장수 <select id="en"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+    <label>품질 <select id="equality"></select></label>
+    <label># <input type="number" id="eseed" placeholder="무작위" style="width:120px"></label>
+  </div>
+  <div class="warn">실제 사람 사진은 본인이 동의한 것만 쓰세요. 다른 사람 얼굴 바꿔치기, 사칭, 성적인 합성은 하지 마세요.</div>
+  <p><button class="primary" id="go-edit" onclick="edit()">고치기</button> <span class="note">처음엔 고치기 모델을 올리느라 1~2분 더</span></p>
+  <div id="edit-prog" class="prog"></div><div class="bar" id="edit-bar" hidden><i></i></div>
+  <div class="results" id="edit-out"></div>
+</div>
+
+<div class="box"><h3>갤러리 <span class="note">— 끝까지 그려진 것만 · 누르면 크게 보기</span></h3><div class="gal" id="gal"></div></div>
+
+<div id="view" onclick="if(event.target===this)this.classList.remove('on')"><div class="in"><img id="v-img"><div class="acts" id="v-acts"></div><div class="meta" id="v-meta"></div></div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let S = {}, STYLE = 'none', RATIO = '1:1', SRC = [];  // SRC: {ref} 갤러리 그림 | {name,b64,url} 올린 그림
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const img = (rid, f) => `api/runs/${rid}/${f}`;
+
+function tab(t) { for (const k of ['gen', 'edit']) { $('p-' + k).hidden = k !== t; $('t-' + k).classList.toggle('on', k === t); } }
+function chips(el, items, cur, set) {
+  el.innerHTML = Object.entries(items).map(([k, v]) => `<button data-k="${esc(k)}" class="${k === cur ? 'on' : ''}">${esc(v)}</button>`).join('');
+  el.onclick = e => { const b = e.target.closest('button'); if (!b) return; set(b.dataset.k); el.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
+}
+async function status() {
+  S = await fetch('api/status').then(r => r.json());
+  const w = S.worker;
+  $('status').textContent = w ? `GPU: ${w.device}${w.loaded ? ` · 올라 있는 모델: ${w.loaded === 'generate' ? '그리기' : '고치기'}` : ''}` : 'GPU 작업 프로세스: 쉬는 중 (처음 그릴 때 자동으로 켜짐)';
+}
+status().then(() => {
+  chips($('styles'), S.styles, STYLE, k => STYLE = k);
+  chips($('ratios'), Object.fromEntries(S.ratios.map(r => [r, r])), RATIO, k => RATIO = k);
+  for (const id of ['quality', 'equality']) $(id).innerHTML = Object.entries(S.quality).map(([k, v]) => `<option value="${k}" ${k === 'normal' ? 'selected' : ''}>${esc(v)}</option>`).join('');
+});
+
+async function stream(path, body, pfx) {
+  const prog = $(pfx + '-prog'), bar = $(pfx + '-bar'), out = $(pfx + '-out');
+  out.innerHTML = ''; prog.textContent = '시작…'; bar.hidden = false; bar.firstChild.style.width = '0';
+  const n = +body.n || 1; let done = null;
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+  for (;;) {
+    const { value, done: end } = await reader.read(); if (end) break;
+    buf += dec.decode(value, { stream: true });
+    let i; while ((i = buf.indexOf('\n\n')) >= 0) {
+      const line = buf.slice(0, i); buf = buf.slice(i + 2);
+      if (!line.startsWith('data: ')) continue;
+      const ev = JSON.parse(line.slice(6));
+      if (ev.error) { prog.textContent = '⚠️ ' + ev.error; bar.hidden = true; return null; }
+      if (ev.done) { done = ev.done; continue; }
+      if (ev.final_prompt && pfx === 'gen') $('gen-final').textContent = '그림 모델에 보낸 프롬프트: ' + ev.final_prompt;
+      if (ev.msg) prog.textContent = ev.msg;
+      if (ev.step) { const pct = ((ev.image || 0) + ev.step / ev.total) / n * 100; bar.firstChild.style.width = pct + '%'; prog.textContent = `${n > 1 ? `${(ev.image || 0) + 1}/${n}장 · ` : ''}${ev.step}/${ev.total} 단계`; }
+      if (ev.saved !== undefined && ev.run_id) out.insertAdjacentHTML('beforeend', fig(ev.run_id, `img_${ev.saved}.png`));
+    }
+  }
+  bar.hidden = true;
+  if (done) { prog.textContent = '완료'; out.innerHTML = done.images.map(f => fig(done.run_id, f)).join(''); gallery(); status(); }
+  return done;
+}
+const fig = (rid, f) => `<figure><img src="${img(rid, f)}?t=${Date.now()}" onclick="viewRef('${rid}','${f}')"><figcaption>
+  <a href="${img(rid, f)}?download=1"><button>⬇ 받기</button></a><button onclick="toEdit('${rid}/${f}')">✏️ 이걸로 고치기</button></figcaption></figure>`;
+
+async function gen() {
+  const prompt = $('prompt').value.trim(); if (!prompt) return $('prompt').focus();
+  $('go-gen').disabled = true; $('gen-final').textContent = '';
+  try { await stream('api/generate', { prompt, style: STYLE, ratio: RATIO, n: $('n').value, quality: $('quality').value, seed: $('seed').value, negative: $('neg').value, enhance: $('enhance').checked }, 'gen'); }
+  catch (e) { $('gen-prog').textContent = '⚠️ ' + e; }
+  finally { $('go-gen').disabled = false; }
+}
+async function edit() {
+  const instruction = $('instr').value.trim();
+  if (!SRC.length) return alert('고칠 그림을 먼저 올리거나 갤러리에서 고르세요');
+  if (!instruction) return $('instr').focus();
+  $('go-edit').disabled = true;
+  try {
+    await stream('api/edit', { instruction, refs: SRC.filter(s => s.ref).map(s => s.ref), uploads: SRC.filter(s => s.b64).map(s => ({ name: s.name, b64: s.b64 })),
+      n: $('en').value, quality: $('equality').value, seed: $('eseed').value }, 'edit');
+  } catch (e) { $('edit-prog').textContent = '⚠️ ' + e; }
+  finally { $('go-edit').disabled = false; }
+}
+
+function drawSrc() {
+  $('srcs').innerHTML = SRC.map((s, i) => `<div><img src="${s.url}"><button onclick="SRC.splice(${i},1);drawSrc()">✕</button></div>`).join('');
+}
+function addFiles(files) {
+  for (const f of files) {
+    if (SRC.length >= 3) { alert('3장까지만 넣을 수 있어요'); break; }
+    if (!/^image\/(png|jpeg|webp)$/.test(f.type)) continue;
+    const rd = new FileReader(), item = { name: f.name, url: URL.createObjectURL(f) };
+    SRC.push(item); rd.onload = () => { item.b64 = rd.result.split(',')[1]; }; rd.readAsDataURL(f);
+  }
+  drawSrc();
+}
+function toEdit(ref) {
+  if (SRC.length >= 3) SRC.shift();
+  SRC.push({ ref, url: 'api/runs/' + ref }); drawSrc(); tab('edit'); $('view').classList.remove('on'); scrollTo({ top: 0, behavior: 'smooth' }); $('instr').focus();
+}
+$('file').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+const drop = $('drop');
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); addFiles(e.dataTransfer.files); };
+
+let RUNS = [];
+async function gallery() {
+  RUNS = await fetch('api/runs').then(r => r.json());
+  $('gal').innerHTML = RUNS.length ? RUNS.flatMap(m => m.images.map(f => `<div class="item"><span class="badge">${m.kind === 'edit' ? '고침' : '그림'}</span>
+    <img loading="lazy" src="${img(m.run_id, f)}" onclick="viewRef('${m.run_id}','${f}')"><p title="${esc(m.prompt)}">${esc(m.prompt)}</p></div>`)).join('')
+    : '<span class="note">아직 없어요. 위에서 그려 보세요.</span>';
+}
+function viewRef(rid, f) {
+  const m = RUNS.find(x => x.run_id === rid) || {};
+  $('v-img').src = img(rid, f);
+  $('v-acts').innerHTML = `<a href="${img(rid, f)}?download=1"><button>⬇ 받기</button></a><button onclick="toEdit('${rid}/${f}')">✏️ 이걸로 고치기</button>
+    ${m.kind === 'generate' ? `<button onclick="reuse('${rid}')">↻ 같은 설정으로 다시</button>` : ''}
+    ${(m.sources || []).map(s => `<button onclick="$('v-img').src='${img(rid, s)}'">원본 보기</button>`).join('')}
+    <button onclick="del('${rid}')" style="margin-left:auto">🗑 지우기</button>`;
+  $('v-meta').textContent = [m.kind === 'edit' ? '고치기 지시: ' + m.prompt : '요청: ' + m.prompt,
+    m.final_prompt && m.final_prompt !== m.prompt ? '그림 모델 프롬프트: ' + m.final_prompt : '',
+    [S.styles?.[m.style], m.ratio, S.quality?.[m.quality], m.seed !== undefined ? '#' + m.seed : '', m.ts].filter(Boolean).join(' · ')].filter(Boolean).join('\n');
+  $('view').classList.add('on');
+}
+function reuse(rid) {
+  const m = RUNS.find(x => x.run_id === rid); if (!m) return;
+  $('prompt').value = m.prompt; STYLE = m.style; RATIO = m.ratio; $('quality').value = m.quality; $('neg').value = m.negative || '';
+  document.querySelectorAll('#styles button').forEach(b => b.classList.toggle('on', b.dataset.k === STYLE));
+  document.querySelectorAll('#ratios button').forEach(b => b.classList.toggle('on', b.dataset.k === RATIO));
+  $('view').classList.remove('on'); tab('gen'); scrollTo({ top: 0, behavior: 'smooth' });
+}
+async function del(rid) {
+  if (!confirm('이 그림 묶음을 지울까요? (휴지통 폴더로 옮겨 둡니다)')) return;
+  await fetch('api/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ run_id: rid }) });
+  $('view').classList.remove('on'); gallery();
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('view').classList.remove('on'); });
+gallery();
+</script>
+</body>
+</html>
