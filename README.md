@@ -2,6 +2,8 @@
 
 말로 그리고 말로 고치는 범용 그림 도구입니다 — 글로 설명하면 그림을 그리고(**Qwen-Image-2512**), 있는 그림을 말로 고칩니다(**Qwen-Image-Edit-2509**). 한글 글자·사진/일러스트/포스터/로고. 포트 `8792`.
 
+> ⚠️ 연구·내부 시험용 프로토타입입니다(배포·상업 서비스용 아님). 제3자 구성요소의 라이선스는 THIRD_PARTY_NOTICES.md 를 확인하세요.
+
 ![그리기 화면 — 요청·스타일 → 품질·그리기 → 결과(받기·이걸로 고치기)](docs/img/gen.png)
 
 ## 무엇을 하나
@@ -70,12 +72,17 @@ env: `PORT`(8792) `WORKER_PORT`(8793) `IMAGE_DEVICE`(비우면 자동, 고정하
 ## 출처·감사 (Credits)
 
 - 그리기 모델 [Qwen/Qwen-Image-2512](https://huggingface.co/Qwen/Qwen-Image-2512), 고치기 모델 [Qwen/Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) — Alibaba Qwen 팀, Apache-2.0 (가중치는 동봉하지 않음, 처음 쓸 때 Hugging Face 에서 받음)
-- 실행: [PyTorch](https://github.com/pytorch/pytorch) (BSD-3), [diffusers](https://github.com/huggingface/diffusers)·[transformers](https://github.com/huggingface/transformers)·[accelerate](https://github.com/huggingface/accelerate) (Apache-2.0), [Pillow](https://github.com/python-pillow/Pillow) (MIT-CMU)
-- **프롬프트 다듬기 LLM** — 기본 배포는 [Ollama](https://github.com/ollama/ollama) (MIT) 위의 Google [Gemma](https://ai.google.dev/gemma) `gemma4:31b` — 모델 이용 조건은 Gemma 배포처 참고.
+- 실행: [PyTorch](https://github.com/pytorch/pytorch) (BSD-3), [diffusers](https://github.com/huggingface/diffusers)·[transformers](https://github.com/huggingface/transformers)·[accelerate](https://github.com/huggingface/accelerate)·safetensors (Apache-2.0), [Pillow](https://github.com/python-pillow/Pillow) (MIT-CMU), NVIDIA CUDA 런타임 휠(NVIDIA 라이선스, torch 와 함께 설치)
+- **프롬프트 다듬기 LLM** — 기본 배포는 [Ollama](https://github.com/ollama/ollama) (MIT) 위의 Google [Gemma 4](https://ai.google.dev/gemma) `gemma4:31b` (Apache-2.0). 단독 실행 기본값은 `qwen3:8b` (Apache-2.0).
+- 생성·편집 결과물을 대외 자료로 쓸 때는 초상·상표·기존 저작물 유사성을 확인하세요([#1](https://github.com/gggg8657/image-local/issues/1)). 다른 모델은 `GEN_MODEL`·`EDIT_MODEL` 로 바꿀 수 있습니다(그 모델의 라이선스를 따로 확인).
 - 이 도구는 [agent-page-portal](https://github.com/gggg8657/agent-page-portal) 에 연결해 쓰도록 만들었습니다(단독 실행도 됨).
 
-저작권 표기·전체 목록은 `NOTICE` 를 보세요.
+전체 목록·라이선스·상업 이용 확인 항목은 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), 저작권 표기는 `NOTICE` 를 보세요.
 
 ## 라이선스
 
-MIT (`LICENSE`) · © 2026 gggg8657 — 모델 가중치는 각 배포처의 라이선스(Apache-2.0)를 따릅니다.
+MIT License — Copyright (c) 2026 DongJu Kim (gggg8657). `LICENSE` 를 보세요. 모델 가중치는 각 배포처의 라이선스(Apache-2.0)를 따르며, 제3자 구성요소의 권리는 이 라이선스로 바뀌지 않습니다.
+
+## 만든 사람
+
+DongJu Kim (gggg8657) — 설계·구현
