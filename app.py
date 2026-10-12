@@ -81,16 +81,26 @@ def worker(path, body, emit=lambda ev: None):
     raise RuntimeError("GPU 작업 프로세스 응답이 끊겼습니다")
 
 
-def new_run():
+def user_ws(h):
+    """포털이 넘긴 사용자별 작업 폴더. owner(서버 주인)·헤더 없음(단독 실행) = 예전 WORKSPACE 그대로"""
+    u = (h.headers.get("X-Agent-User") or "owner").strip()
+    if u == "owner":
+        return WS
+    d = os.path.join(WS, "u", re.sub(r"[^A-Za-z0-9_.-]", "_", u)[:64] or "_")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def new_run(ws=WS):
     rid = f"{datetime.date.today()}-{secrets.token_hex(3)}"
-    os.makedirs(os.path.join(WS, rid)); return rid, os.path.join(WS, rid)
+    os.makedirs(os.path.join(ws, rid)); return rid, os.path.join(ws, rid)
 
 
 def save_meta(d, meta):
     json.dump(meta, open(os.path.join(d, "meta.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
-def generate(prompt, style="none", ratio="1:1", n=1, quality="normal", seed=None, negative="", enhance=True, emit=lambda ev: None):
+def generate(prompt, style="none", ratio="1:1", n=1, quality="normal", seed=None, negative="", enhance=True, emit=lambda ev: None, ws=WS):
     if not prompt.strip(): raise ValueError("무엇을 그릴지 써 주세요")
     style = style if style in STYLES else "none"; ratio = ratio if ratio in RATIOS else "1:1"; quality = quality if quality in QUALITY else "normal"
     n = max(1, min(int(n or 1), 4)); seed = int(seed) if str(seed or "").strip().lstrip("-").isdigit() else secrets.randbelow(10 ** 9)
@@ -104,7 +114,7 @@ def generate(prompt, style="none", ratio="1:1", n=1, quality="normal", seed=None
             emit({"stage": "prompt", "msg": f"다듬기 건너뜀({type(e).__name__}) — 원문 그대로"})
     if STYLES[style][1] and not enhance: final += ", " + STYLES[style][1]
     if not text_style: final += ", Ultra HD, 4K, cinematic composition"  # 글자 디자인엔 붙이지 않음(그림에 글자로 찍힘)
-    rid, d = new_run()
+    rid, d = new_run(ws)
     w, h = RATIOS[ratio]
     meta = {"run_id": rid, "kind": "generate", "prompt": prompt, "final_prompt": final, "negative": negative, "style": style, "ratio": ratio,
             "quality": quality, "seed": seed, "n": n, "ts": datetime.datetime.now().isoformat(timespec="seconds")}
@@ -119,13 +129,13 @@ def generate(prompt, style="none", ratio="1:1", n=1, quality="normal", seed=None
     return meta
 
 
-def edit(instruction, sources, n=1, quality="normal", seed=None, negative="", emit=lambda ev: None):
+def edit(instruction, sources, n=1, quality="normal", seed=None, negative="", emit=lambda ev: None, ws=WS):
     """sources: 로컬 이미지 경로 1~3개(올린 것 또는 갤러리). 지시는 그대로(편집 모델은 한국어·영어 지시를 읽음)"""
     if not instruction.strip(): raise ValueError("어떻게 고칠지 써 주세요")
     if not sources: raise ValueError("고칠 그림을 올리거나 갤러리에서 고르세요")
     quality = quality if quality in QUALITY else "normal"; n = max(1, min(int(n or 1), 4))
     seed = int(seed) if str(seed or "").strip().lstrip("-").isdigit() else secrets.randbelow(10 ** 9)
-    rid, d = new_run()
+    rid, d = new_run(ws)
     srcs = []
     for i, s in enumerate(sources[:3]):
         p = os.path.join(d, f"src_{i}.png"); shutil.copy(s, p); srcs.append(p)
@@ -142,30 +152,30 @@ def edit(instruction, sources, n=1, quality="normal", seed=None, negative="", em
     return meta
 
 
-def list_runs():
+def list_runs(ws=WS):
     out = []
-    for n in sorted(os.listdir(WS), key=lambda n: os.path.getmtime(os.path.join(WS, n)), reverse=True)[:80] if os.path.isdir(WS) else []:
-        p = os.path.join(WS, n, "meta.json")
+    for n in sorted(os.listdir(ws), key=lambda n: os.path.getmtime(os.path.join(ws, n)), reverse=True)[:80] if os.path.isdir(ws) else []:
+        p = os.path.join(ws, n, "meta.json")
         if re.fullmatch(RUN_RE, n) and os.path.exists(p):
             m = json.load(open(p, encoding="utf-8"))
             if m.get("images"): out.append(m)  # 끝난 것만
     return out
 
 
-def delete(run_id):
+def delete(run_id, ws=WS):
     """휴지통(.trash)으로 옮김 — 실수로 지워도 폴더째 되살릴 수 있게"""
     if not re.fullmatch(RUN_RE, run_id or ""): raise ValueError("잘못된 ID")
-    src = os.path.join(WS, run_id)
+    src = os.path.join(ws, run_id)
     if not os.path.isdir(src): raise ValueError("없는 그림")
-    t = os.path.join(WS, ".trash"); os.makedirs(t, exist_ok=True); shutil.move(src, os.path.join(t, run_id))
+    t = os.path.join(ws, ".trash"); os.makedirs(t, exist_ok=True); shutil.move(src, os.path.join(t, run_id))
     return {"ok": True}
 
 
-def resolve(ref):
+def resolve(ref, ws=WS):
     """'run_id/img_0.png' → 로컬 경로 (갤러리 그림을 편집 원본으로)"""
     m = re.fullmatch(rf"({RUN_RE})/((?:img|src)_\d\.png)", ref or "")
     if not m: raise ValueError("잘못된 그림 경로")
-    p = os.path.join(WS, m.group(1), m.group(2))
+    p = os.path.join(ws, m.group(1), m.group(2))
     if not os.path.exists(p): raise ValueError("없는 그림")
     return p
 
@@ -211,10 +221,10 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         p, _, q = self.path.partition("?")
         if p == "/api/status": return self._send(status())
-        if p == "/api/runs": return self._send(list_runs())
+        if p == "/api/runs": return self._send(list_runs(user_ws(self)))
         m = re.fullmatch(rf"/api/runs/({RUN_RE})/((?:img|src)_\d\.png)", p)
         if m:
-            f = os.path.join(WS, m.group(1), m.group(2))
+            f = os.path.join(user_ws(self), m.group(1), m.group(2))
             if os.path.exists(f):
                 return self._send(open(f, "rb").read(), "image/png", name=f"{m.group(1)}_{m.group(2)}" if "download" in q else None)
             return self._send({"error": "없음"}, code=404)
@@ -222,8 +232,9 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        ws = user_ws(self)  # 경로는 요청 시점에 정해 GPU 워커로 out_dir 로 넘긴다
         if self.path == "/api/delete":
-            try: return self._send(delete(req.get("run_id")))
+            try: return self._send(delete(req.get("run_id"), ws))
             except ValueError as e: return self._send({"error": str(e)}, code=400)
         if self.path not in ("/api/generate", "/api/edit"):
             return self._send({"error": "not found"}, code=404)
@@ -235,15 +246,15 @@ class H(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/generate":
                 r = generate(req.get("prompt") or "", req.get("style"), req.get("ratio"), req.get("n"), req.get("quality"), req.get("seed"),
-                             req.get("negative") or "", req.get("enhance", True), emit)
+                             req.get("negative") or "", req.get("enhance", True), emit, ws)
             else:
-                srcs = [resolve(x) for x in req.get("refs") or []]
-                up = os.path.join(WS, "_upload"); os.makedirs(up, exist_ok=True)
+                srcs = [resolve(x, ws) for x in req.get("refs") or []]
+                up = os.path.join(ws, "_upload"); os.makedirs(up, exist_ok=True)
                 for f in req.get("uploads") or []:
                     if not re.search(r"\.(png|jpe?g|webp)$", f.get("name", ""), re.I): raise ValueError("그림 파일(png·jpg·webp)만")
                     p = os.path.join(up, secrets.token_hex(4) + "_" + re.sub(r"[^\w.\-]", "_", os.path.basename(f["name"])))
                     open(p, "wb").write(base64.b64decode(f["b64"])); ups.append(p); srcs.append(p)
-                r = edit(req.get("instruction") or "", srcs, req.get("n"), req.get("quality"), req.get("seed"), req.get("negative") or "", emit)
+                r = edit(req.get("instruction") or "", srcs, req.get("n"), req.get("quality"), req.get("seed"), req.get("negative") or "", emit, ws)
             emit({"done": r})
         except Exception as e:
             emit({"error": f"{type(e).__name__}: {e}"})
@@ -260,4 +271,4 @@ if __name__ == "__main__":
                      emit=lambda ev: print(ev.get("msg") or "", file=sys.stderr) if ev.get("msg") else None)
         shutil.copy(os.path.join(WS, m["run_id"], "img_0.png"), get("-o", "out.png")); print(get("-o", "out.png")); sys.exit(0)
     print(f"image-local → http://localhost:{PORT}  (worker {WORKER}, llm={LLM_API} {LLM_BASE} {LLM_MODEL})  {_SIG}")
-    ThreadingHTTPServer(("", PORT), H).serve_forever()
+    ThreadingHTTPServer((os.environ.get("BIND", ""), PORT), H).serve_forever()

@@ -62,6 +62,8 @@ venv/bin/python app.py --cli "비 오는 밤 우동집, 간판 \"우동\"" -o ud
 
 env: `PORT`(8792) `WORKER_PORT`(8793) `IMAGE_DEVICE`(비우면 자동, 고정하려면 cuda:N) `GPU_POOL` `GPU_IDLE_UNLOAD_S`(600) `GPU_PICK_HOLD_S`(600) `OFFLOAD`(auto/1/0) `GEN_MODEL` `EDIT_MODEL` `LLM_API`(ollama/openai) `LLM_BASE_URL` `LLM_MODEL`(기본 `qwen3:8b`, 포털로 띄우면 `gemma4:31b`) `WORKSPACE`(기본 `./_workspace`)
 
+포털 접속자 기준으로 그림·갤러리·휴지통·올린 원본은 사용자별로 따로 저장합니다(`WORKSPACE/u/<사용자>/`, 포털이 넘기는 `X-Agent-User` 헤더). 서버 주인(owner)·단독 실행은 예전처럼 `WORKSPACE` 바로 아래를 쓰므로 예전 기록이 그대로 보입니다. 포털이 `BIND=127.0.0.1` 을 주면 포털을 거쳐서만 열립니다. GPU 작업 프로세스에는 요청 때 그 사용자 폴더를 `out_dir` 로 넘깁니다.
+
 ## 주의
 실존 인물·유명인, 동의 없는 실제 사람 사진 편집, 사칭, 선정적인 그림은 만들지 마세요. 서버는 모든 요청에 NSFW 네거티브 프롬프트를 붙입니다.
 
