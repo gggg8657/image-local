@@ -15,6 +15,7 @@ PY = os.path.join(ROOT, "venv", "bin", "python")
 PORT = int(os.environ.get("PORT", "8792"))
 WORKER = "http://127.0.0.1:" + os.environ.get("WORKER_PORT", "8793")
 LLM_API = os.environ.get("LLM_API", "ollama")
+LLM_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_BASE = os.environ.get("LLM_BASE_URL", "http://localhost:8000/v1" if LLM_API == "openai" else "http://localhost:11434").rstrip("/")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3:8b")
 RUN_RE = r"\d{4}-\d{2}-\d{2}-[0-9a-f]{6}"
@@ -41,9 +42,9 @@ def llm(system, user):
         url, body = LLM_BASE + "/chat/completions", {"model": LLM_MODEL, "messages": msgs, "temperature": 0.4}
     else:
         url, body = LLM_BASE + "/api/chat", {"model": LLM_MODEL, "messages": msgs, "stream": False, "think": False, "options": {"temperature": 0.4}}
-    with urllib.request.urlopen(urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"}), timeout=180) as r:
+    with urllib.request.urlopen(urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json", **({"Authorization": "Bearer " + LLM_KEY} if LLM_KEY else {})}), timeout=300) as r:   # vLLM 대기열 고려
         j = json.load(r)
-    out = j["choices"][0]["message"]["content"] if LLM_API == "openai" else j["message"]["content"]
+    out = (j["choices"][0]["message"] if LLM_API == "openai" else j["message"]).get("content") or ""   # vLLM 은 빈 응답에 null
     return re.sub(r"<think>.*?</think>", "", out, flags=re.S).strip()
 
 
@@ -53,7 +54,7 @@ def refine(prompt, style, text_style):
               "Describe subject, composition, setting, lighting, colors. Keep any text that must appear in the image EXACTLY as given, in double quotes, "
               "and say where it appears. Do not add other text, logos or watermarks. Do not depict real, famous people.",
               f"[요청] {prompt}\n[스타일] {STYLES[style][1] or '알아서'}" + ("\n[주의] 글자가 들어가는 디자인 — 문구는 짧고 정확하게" if text_style else ""))
-    return out.strip().strip('"')
+    return out.strip().strip('"') or prompt   # LLM 이 빈 답이면 원문 그대로
 
 
 def worker(path, body, emit=lambda ev: None):
