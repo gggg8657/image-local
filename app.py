@@ -81,6 +81,23 @@ def worker(path, body, emit=lambda ev: None):
     raise RuntimeError("GPU 작업 프로세스 응답이 끊겼습니다")
 
 
+def _scrub(ev):
+    """GPU 작업 프로세스 이벤트에서 서버 절대 경로를 빼고 파일 이름만 남긴다"""
+    ev = dict(ev)
+    if isinstance(ev.get("path"), str):
+        ev["path"] = os.path.basename(ev["path"])
+    if isinstance(ev.get("paths"), list):
+        ev["paths"] = [os.path.basename(str(x)) for x in ev["paths"]]
+    return ev
+
+
+def _hide_paths(msg):
+    """오류 문구 속 서버 폴더 경로를 지운다"""
+    for base in sorted({os.path.realpath(WS), WS, ROOT, os.path.realpath(ROOT)}, key=len, reverse=True):
+        msg = msg.replace(base + os.sep, "").replace(base, "")
+    return msg
+
+
 def user_ws(h):
     """포털이 넘긴 사용자별 작업 폴더. owner(서버 주인)·헤더 없음(단독 실행) = 예전 WORKSPACE 그대로"""
     u = (h.headers.get("X-Agent-User") or "owner").strip()
@@ -122,7 +139,7 @@ def generate(prompt, style="none", ratio="1:1", n=1, quality="normal", seed=None
     emit({"stage": "draw", "msg": f"그리는 중 ({n}장, {QUALITY[quality][0]})", "run_id": rid, "final_prompt": final})
     try:
         worker("/generate", {"prompt": final, "negative": ", ".join(x for x in (negative, SAFE_NEG) if x), "width": w, "height": h, "n": n,
-                             "seed": seed, "steps": QUALITY[quality][1], "out_dir": d}, lambda ev: emit({**ev, "run_id": rid}))
+                             "seed": seed, "steps": QUALITY[quality][1], "out_dir": d}, lambda ev: emit({**_scrub(ev), "run_id": rid}))
     except Exception:
         shutil.rmtree(d, ignore_errors=True); raise  # 실패한 건 흔적 없이
     meta["images"] = [f"img_{i}.png" for i in range(n)]; save_meta(d, meta)
@@ -145,7 +162,7 @@ def edit(instruction, sources, n=1, quality="normal", seed=None, negative="", em
     emit({"stage": "draw", "msg": f"고치는 중 ({n}장, {QUALITY[quality][0]})", "run_id": rid})
     try:
         worker("/edit", {"images": srcs, "prompt": instruction, "negative": ", ".join(x for x in (negative, SAFE_NEG) if x), "n": n, "seed": seed,
-                         "steps": QUALITY[quality][1], "out_dir": d}, lambda ev: emit({**ev, "run_id": rid}))
+                         "steps": QUALITY[quality][1], "out_dir": d}, lambda ev: emit({**_scrub(ev), "run_id": rid}))
     except Exception:
         shutil.rmtree(d, ignore_errors=True); raise
     meta["images"] = [f"img_{i}.png" for i in range(n)]; save_meta(d, meta)
@@ -231,7 +248,12 @@ class H(BaseHTTPRequestHandler):
         self._send(signed(HTML).encode(), "text/html; charset=utf-8")
 
     def do_POST(self):
-        req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        try:
+            req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        except ValueError:
+            return self._send({"error": "잘못된 요청"}, code=400)
+        if not isinstance(req, dict):
+            return self._send({"error": "잘못된 요청"}, code=400)
         ws = user_ws(self)  # 경로는 요청 시점에 정해 GPU 워커로 out_dir 로 넘긴다
         if self.path == "/api/delete":
             try: return self._send(delete(req.get("run_id"), ws))
@@ -257,7 +279,7 @@ class H(BaseHTTPRequestHandler):
                 r = edit(req.get("instruction") or "", srcs, req.get("n"), req.get("quality"), req.get("seed"), req.get("negative") or "", emit, ws)
             emit({"done": r})
         except Exception as e:
-            emit({"error": f"{type(e).__name__}: {e}"})
+            emit({"error": _hide_paths(f"{type(e).__name__}: {e}")})
         finally:
             for p in ups:
                 if os.path.exists(p): os.remove(p)

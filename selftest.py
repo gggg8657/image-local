@@ -15,7 +15,7 @@ PNG = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
 def fake_worker(path, body, emit=lambda ev: None):
     seen.append((path, body))
     for i in range(int(body["n"])):
-        open(os.path.join(body["out_dir"], f"img_{i}.png"), "wb").write(PNG); emit({"saved": i})
+        p = os.path.join(body["out_dir"], f"img_{i}.png"); open(p, "wb").write(PNG); emit({"saved": i, "path": p})
     return {"paths": []}
 app.worker = fake_worker
 app.llm = lambda s, u: "A cozy udon shop on a rainy night, sign reads \"우동\""
@@ -25,7 +25,10 @@ path, body = seen[-1]
 assert path == "/generate" and (body["width"], body["height"]) == app.RATIOS["16:9"] and body["steps"] == 20 and body["seed"] == 7
 assert "nsfw" in body["negative"] and "Ultra HD" not in body["prompt"], body  # 따옴표 글자 있으면 화질 꼬리말 안 붙임
 assert m["images"] == ["img_0.png", "img_1.png"] and m["final_prompt"].startswith("A cozy")
-m2 = app.generate("고양이", "illust", "1:1", 1, enhance=False)
+evs = []
+m2 = app.generate("고양이", "illust", "1:1", 1, enhance=False, emit=evs.append)
+assert [e["path"] for e in evs if "saved" in e] == ["img_0.png"], evs  # 진행 이벤트에 서버 절대 경로가 새지 않음
+assert app._hide_paths(f"FileNotFoundError: {app.WS}/x/img_0.png") == "FileNotFoundError: x/img_0.png"
 assert "digital illustration" in seen[-1][1]["prompt"] and "Ultra HD" in seen[-1][1]["prompt"]
 
 # 3) 고치기: 갤러리 그림을 원본으로
