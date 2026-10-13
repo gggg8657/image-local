@@ -1,6 +1,6 @@
 # THIRD_PARTY_NOTICES — image-local
 
-이 저장소의 코드(`app.py`·`worker.py`·`gpu_pick.py`·`ui.html`·`selftest.py`·`setup.sh`)는 DongJu Kim(gggg8657)이 작성했으며 MIT 입니다. 제3자 코드·글꼴·아이콘·모델 가중치는 동봉하지 않습니다. 아래는 설치해서 쓰거나, 처음 쓸 때 내려받는 모델, 외부 서비스입니다.
+이 저장소의 코드(`app.py`·`worker.py`·`gpu_pick.py`·`ui.html`·`selftest.py`·`setup.sh`)는 DongJu Kim(gggg8657)이 작성했으며 PolyForm Noncommercial 1.0.0 입니다. 제3자 코드·글꼴·아이콘·모델 가중치는 동봉하지 않습니다. 아래는 설치해서 쓰거나, 처음 쓸 때 내려받는 모델, 외부 서비스입니다.
 
 조사 기준: 2026-10-12. 실제 파일(`requirements.txt`, `setup.sh`, `worker.py` 의 모델 id)을 보고, 라이선스는 `venv` 에 설치된 패키지의 dist-info 메타데이터와 Hugging Face 캐시에 받은 모델 카드(README 의 `license:` 필드)에서 확인했습니다. 버전은 이 서버의 `venv` 값입니다(고정 아님 — `requirements.txt` 는 하한만).
 

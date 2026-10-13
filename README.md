@@ -81,7 +81,12 @@ env: `PORT`(8792) `WORKER_PORT`(8793) `IMAGE_DEVICE`(비우면 자동, 고정하
 
 ## 라이선스
 
-MIT License — Copyright (c) 2026 DongJu Kim (gggg8657). `LICENSE` 를 보세요. 모델 가중치는 각 배포처의 라이선스(Apache-2.0)를 따르며, 제3자 구성요소의 권리는 이 라이선스로 바뀌지 않습니다.
+[PolyForm Noncommercial License 1.0.0](LICENSE) — Copyright 2026 DongJu Kim (gggg8657). 모델 가중치는 각 배포처의 라이선스(Apache-2.0)를 따릅니다.
+
+- 비상업 목적(개인 연구·학습·시험, 교육기관·공공 연구기관·정부기관·비영리 단체 등)이면 쓰고 고치고 다시 배포할 수 있습니다. 다시 배포할 때는 `LICENSE` 와 `Required Notice:` 줄을 함께 주세요.
+- 상업적 이용은 저작자의 별도 허락이 필요합니다.
+- 2026-10-13 이전 버전(커밋 `7cdb5fb` 까지)을 MIT 로 받아 간 사본에는 MIT 가 계속 적용됩니다. 이 변경은 이후 버전에만 적용됩니다.
+- 제3자 구성요소는 각자의 원래 라이선스를 따르며 이 라이선스로 바뀌지 않습니다(`THIRD_PARTY_NOTICES.md`, `NOTICE`).
 
 ## 만든 사람
 
