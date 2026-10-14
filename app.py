@@ -308,4 +308,4 @@ if __name__ == "__main__":
                      emit=lambda ev: print(ev.get("msg") or "", file=sys.stderr) if ev.get("msg") else None)
         shutil.copy(os.path.join(WS, m["run_id"], "img_0.png"), get("-o", "out.png")); print(get("-o", "out.png")); sys.exit(0)
     print(f"image-local → http://localhost:{PORT}  (worker {WORKER}, llm={LLM_API} {LLM_BASE} {LLM_MODEL})  {_SIG}")
-    ThreadingHTTPServer((os.environ.get("BIND", ""), PORT), H).serve_forever()
+    ThreadingHTTPServer((os.environ.get("BIND", "127.0.0.1"), PORT), __import__("portal_auth").install(H, "image-local")).serve_forever()
