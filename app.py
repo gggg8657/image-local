@@ -8,6 +8,7 @@
 env: PORT(8792) WORKER_PORT(8793) LLM_API·LLM_BASE_URL·LLM_MODEL(프롬프트 다듬기, 없으면 원문 그대로) WORKSPACE"""
 import base64, datetime, json, os, re, secrets, shutil, subprocess, sys, time, urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from gpu_pick import pool_env  # 작업자 GPU 후보 좁히기
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WS = os.environ.get("WORKSPACE") or os.path.join(ROOT, "_workspace")  # 포털이 AGENT_DATA/<도구> 로 모아 줌
@@ -57,13 +58,18 @@ def refine(prompt, style, text_style):
     return out.strip().strip('"') or prompt   # LLM 이 빈 답이면 원문 그대로
 
 
+def worker_env(env=None, smi_ids=None):
+    """작업자 프로세스 환경 — CUDA_VISIBLE_DEVICES 를 부모 후보(CUDA_VISIBLE_DEVICES ∩ GPU_POOL − GPU_RESERVED)로 좁힘(운영 vLLM GPU 는 안 보임)"""
+    return pool_env({**(os.environ if env is None else env), "PYTHONUNBUFFERED": "1"}, smi_ids)
+
+
 def worker(path, body, emit=lambda ev: None):
     """GPU 작업 프로세스에 요청(없으면 띄움) → 마지막 결과"""
     try:
         urllib.request.urlopen(WORKER + "/", timeout=2)
     except Exception:
         emit({"stage": "worker", "msg": "GPU 작업 프로세스 시작"})
-        wp = subprocess.Popen([PY, os.path.join(ROOT, "worker.py")], cwd=ROOT, env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        wp = subprocess.Popen([PY, os.path.join(ROOT, "worker.py")], cwd=ROOT, env=worker_env(),
                               stdout=open(os.path.join(ROOT, "worker.log"), "ab"), stderr=subprocess.STDOUT, start_new_session=True)
         open(os.path.join(ROOT, ".worker.pid"), "w").write(str(wp.pid))  # setup.sh stop 이 같이 끈다
         for _ in range(180):
