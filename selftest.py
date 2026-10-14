@@ -58,6 +58,38 @@ _src = open(os.path.join(app.ROOT, "app.py"), encoding="utf-8").read()
 assert "wqkgMjAyNiBnZ2dnODY1NyDCtyBkb25nanVraW0uZGV2QGdtYWlsLmNvbQ==" in _src and "signed(" in _src and "X-Author" in _src, "저작권 표기 누락"
 assert "data-sig" in app.signed(app.HTML)
 
+# 6) 포털 작업 알림(🔔): 환경변수 없으면 notify 는 False 이고 그리기는 그대로 / 가짜 포털에 running → done 이 토큰 헤더와 함께 간다
+import threading, urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import portal_jobs
+for k in ("PORTAL_JOBS_URL", "PORTAL_JOBS_TOKEN", "PORTAL_JOBS_TOOL"): os.environ.pop(k, None)
+app.worker = fake_worker
+assert portal_jobs.notify("alice", "running", id="x") is False
+GOT = []
+class FakePortal(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_POST(self):
+        GOT.append((self.headers.get("X-Portal-Jobs-Token"), json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
+        self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"{}")
+portal = ThreadingHTTPServer(("127.0.0.1", 0), FakePortal); threading.Thread(target=portal.serve_forever, daemon=True).start()
+tool = ThreadingHTTPServer(("127.0.0.1", 0), app.H); threading.Thread(target=tool.serve_forever, daemon=True).start()
+def sse(path, body, user="alice"):
+    r = urllib.request.Request(f"http://127.0.0.1:{tool.server_address[1]}{path}", json.dumps(body).encode(), {"Content-Type": "application/json", "X-Agent-User": user})
+    return [json.loads(l[6:]) for l in urllib.request.urlopen(r).read().decode().split("\n\n") if l.startswith("data: ")]
+assert "done" in sse("/api/generate", {"prompt": "알림 없이", "enhance": False})[-1] and GOT == []  # 꺼져 있어도 도구는 그대로
+os.environ.update(PORTAL_JOBS_URL=f"http://127.0.0.1:{portal.server_address[1]}/api/internal/jobs", PORTAL_JOBS_TOKEN="tok-test", PORTAL_JOBS_TOOL="image-local")
+assert portal_jobs.notify("alice", "queued", id="j1", title="t", link="/?run=x", message="m", progress=150) and portal_jobs.flush()
+assert GOT[-1] == ("tok-test", {"tool": "image-local", "user": "alice", "status": "queued", "title": "t", "link": "/?run=x", "message": "m", "id": "j1", "progress": 100}), GOT
+d = sse("/api/generate", {"prompt": "알림 고양이", "enhance": False, "n": 2})[-1]["done"]; portal_jobs.flush()
+st = [g[1] for g in GOT[1:]]
+assert [x["status"] for x in st] == ["running", "done"] and st[0]["id"] == st[1]["id"] and st[1]["link"] == f"/?run={d['run_id']}", st
+assert st[1]["user"] == "alice" and st[1]["title"].startswith("그림 생성") and st[1]["message"] == "2장" and all(g[0] == "tok-test" for g in GOT)
+app.worker = boom; del GOT[:]
+assert "error" in sse("/api/edit", {"instruction": "실패", "refs": [f"{e['run_id']}/img_0.png"]})[-1]; portal_jobs.flush()
+assert [g[1]["status"] for g in GOT] == ["running", "failed"] and app.WS not in GOT[-1][1]["message"] and GOT[-1][1]["title"].startswith("그림 고치기"), GOT
+tool.shutdown(); portal.shutdown()
+for k in ("PORTAL_JOBS_URL", "PORTAL_JOBS_TOKEN", "PORTAL_JOBS_TOOL"): os.environ.pop(k, None)
+
 shutil.rmtree(app.WS)
 print("selftest OK —", len(app.STYLES), "styles,", len(app.RATIOS), "ratios")
 

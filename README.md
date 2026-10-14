@@ -54,6 +54,7 @@ bash setup.sh stop
 venv/bin/python app.py --cli "비 오는 밤 우동집, 간판 \"우동\"" -o udon.png --style photo --ratio 16:9 [--quality fast|normal|high]
 ```
 포털(agent-page-portal)에서는 `그림 생성` 으로 켜고 끕니다.
+포털이 띄우면(`PORTAL_JOBS_*` 환경변수) 그리기·고치기의 시작·완료·실패를 포털 작업 알림(🔔)에 알리고(`portal_jobs.py`, 실패해도 도구 동작엔 영향 없음), 알림을 누르면 `/?run=<ID>` 로 그 그림이 크게 열립니다. 단독 실행에서는 아무것도 보내지 않습니다.
 
 ## 구조
 - `app.py` — stdlib 서버(SSE). 프리셋·LLM 다듬기·실행 기록(`WORKSPACE/<날짜-id>/meta.json, img_N.png`)

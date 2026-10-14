@@ -205,7 +205,10 @@ async function del(rid) {
   $('view').classList.remove('on'); gallery();
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('view').classList.remove('on'); });
-gallery();
+gallery().then(() => {  // 포털 알림(🔔)에서 ?run=<ID> 로 열면 그 그림을 크게 보기
+  const rid = new URLSearchParams(location.search).get('run'), m = RUNS.find(x => x.run_id === rid);
+  if (m) viewRef(m.run_id, m.images[0]);
+});
 </script>
 </body>
 </html>

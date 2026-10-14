@@ -9,6 +9,7 @@ env: PORT(8792) WORKER_PORT(8793) LLM_API·LLM_BASE_URL·LLM_MODEL(프롬프트 
 import base64, datetime, json, os, re, secrets, shutil, subprocess, sys, time, urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from gpu_pick import pool_env  # 작업자 GPU 후보 좁히기
+import portal_jobs  # 포털 작업 알림(🔔) — 포털 밖이면 아무 일도 안 함
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WS = os.environ.get("WORKSPACE") or os.path.join(ROOT, "_workspace")  # 포털이 AGENT_DATA/<도구> 로 모아 줌
@@ -272,6 +273,10 @@ class H(BaseHTTPRequestHandler):
         def emit(ev):
             self.wfile.write(f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()); self.wfile.flush()
         ups = []
+        user, jid, kind = self.headers.get("X-Agent-User"), secrets.token_hex(6), "그림 생성" if self.path == "/api/generate" else "그림 고치기"
+        title = f"{kind} · {(req.get('prompt') if self.path == '/api/generate' else req.get('instruction')) or ''}"[:60]
+        portal_jobs.notify(user, "running", id=jid, title=title, link="/")
+        noted = False
         try:
             if self.path == "/api/generate":
                 r = generate(req.get("prompt") or "", req.get("style"), req.get("ratio"), req.get("n"), req.get("quality"), req.get("seed"),
@@ -284,8 +289,11 @@ class H(BaseHTTPRequestHandler):
                     p = os.path.join(up, secrets.token_hex(4) + "_" + re.sub(r"[^\w.\-]", "_", os.path.basename(f["name"])))
                     open(p, "wb").write(base64.b64decode(f["b64"])); ups.append(p); srcs.append(p)
                 r = edit(req.get("instruction") or "", srcs, req.get("n"), req.get("quality"), req.get("seed"), req.get("negative") or "", emit, ws)
+            portal_jobs.notify(user, "done", id=jid, title=title, link=f"/?run={r['run_id']}", message=f"{len(r['images'])}장"); noted = True
             emit({"done": r})
         except Exception as e:
+            if not noted:  # 다 그린 뒤 브라우저가 끊긴 경우는 '완료' 그대로
+                portal_jobs.notify(user, "failed", id=jid, title=title, link="/", message=_hide_paths(f"{type(e).__name__}: {e}")[:200])
             emit({"error": _hide_paths(f"{type(e).__name__}: {e}")})
         finally:
             for p in ups:
