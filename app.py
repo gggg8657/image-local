@@ -10,6 +10,7 @@ import base64, datetime, json, os, re, secrets, shutil, subprocess, sys, time, u
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from gpu_pick import pool_env  # 작업자 GPU 후보 좁히기
 import portal_jobs  # 포털 작업 알림(🔔) — 포털 밖이면 아무 일도 안 함
+import portal_auth  # 포털 서명 확인 관문·오류 문장 정리(원본 agent-page-portal/sdk/portal_auth.py)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WS = os.environ.get("WORKSPACE") or os.path.join(ROOT, "_workspace")  # 포털이 AGENT_DATA/<도구> 로 모아 줌
@@ -253,6 +254,8 @@ class H(BaseHTTPRequestHandler):
             if os.path.exists(f):
                 return self._send(open(f, "rb").read(), "image/png", name=f"{m.group(1)}_{m.group(2)}" if "download" in q else None)
             return self._send({"error": "없음"}, code=404)
+        if self.path.split("?")[0].startswith("/api/"):   # 없는 API 경로는 화면 대신 JSON 404
+            return self._send({"error": "not found"}, code=404)
         self._send(signed(HTML).encode(), "text/html; charset=utf-8")
 
     def do_POST(self):
@@ -308,4 +311,4 @@ if __name__ == "__main__":
                      emit=lambda ev: print(ev.get("msg") or "", file=sys.stderr) if ev.get("msg") else None)
         shutil.copy(os.path.join(WS, m["run_id"], "img_0.png"), get("-o", "out.png")); print(get("-o", "out.png")); sys.exit(0)
     print(f"image-local → http://localhost:{PORT}  (worker {WORKER}, llm={LLM_API} {LLM_BASE} {LLM_MODEL})  {_SIG}")
-    ThreadingHTTPServer((os.environ.get("BIND", "127.0.0.1"), PORT), __import__("portal_auth").install(H, "image-local")).serve_forever()
+    ThreadingHTTPServer((os.environ.get("BIND", "127.0.0.1"), PORT), portal_auth.install(H, "image-local")).serve_forever()
