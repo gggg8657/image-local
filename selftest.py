@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """GPU·LLM 없이 검증: 프리셋 → 가짜 작업 프로세스로 그리기·고치기 흐름 → 갤러리·지우기 → 화면 저작권 표기.  python3 selftest.py"""
 import json, os, shutil, tempfile
+for _k in ("PORTAL_JOBS_URL", "PORTAL_JOBS_TOKEN", "PORTAL_JOBS_TOOL"): os.environ.pop(_k, None)   # setup.sh 가 포털 환경에서 돌려도 시험 작업을 진짜 🔔 로 보내지 않게
 os.environ["WORKSPACE"] = tempfile.mkdtemp(prefix="image-local-test-")
 import app
 
