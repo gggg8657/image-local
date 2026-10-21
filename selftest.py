@@ -19,18 +19,96 @@ def fake_worker(path, body, emit=lambda ev: None):
         p = os.path.join(body["out_dir"], f"img_{i}.png"); open(p, "wb").write(PNG); emit({"saved": i, "path": p})
     return {"paths": []}
 app.worker = fake_worker
-app.llm = lambda s, u: "A cozy udon shop on a rainy night, sign reads \"우동\""
+app.llm = lambda s, u, temperature=0.4, as_json=False: "{}" if as_json else "A cozy udon shop on a rainy night, sign reads \"우동\""
 
 m = app.generate("비 오는 밤 우동집, 간판 \"우동\"", "photo", "16:9", 2, "fast", 7)
 path, body = seen[-1]
 assert path == "/generate" and (body["width"], body["height"]) == app.RATIOS["16:9"] and body["steps"] == 20 and body["seed"] == 7
 assert "nsfw" in body["negative"] and "Ultra HD" not in body["prompt"], body  # 따옴표 글자 있으면 화질 꼬리말 안 붙임
-assert m["images"] == ["img_0.png", "img_1.png"] and m["final_prompt"].startswith("A cozy")
+assert m["images"] == ["img_0.png", "img_1.png"] and '"우동"' in m["final_prompt"] and m["final_prompt"].startswith("Photograph. A cozy"), m["final_prompt"]
 evs = []
 m2 = app.generate("고양이", "illust", "1:1", 1, enhance=False, emit=evs.append)
 assert [e["path"] for e in evs if "saved" in e] == ["img_0.png"], evs  # 진행 이벤트에 서버 절대 경로가 새지 않음
 assert app._hide_paths(f"FileNotFoundError: {app.WS}/x/img_0.png") == "FileNotFoundError: x/img_0.png"
-assert "digital illustration" in seen[-1][1]["prompt"] and "Ultra HD" in seen[-1][1]["prompt"]
+assert seen[-1][1]["prompt"] == "고양이, digital illustration, clean shapes, pleasant colors", seen[-1][1]["prompt"]  # magic 꼬리는 그대로·사진에만
+
+# 2-1) 꼬리말·구두점: 겹치지 않고 '., ,' 같은 것 없음, 스타일 따라 붙음
+assert app.plain("고양이", "none", False) == "고양이, Ultra HD, 4K, cinematic composition"
+assert app.plain("A cat on a sofa.", "photo", False) == "A cat on a sofa. professional photograph, natural light, sharp focus, realistic detail, Ultra HD, 4K, cinematic composition"
+assert app.plain("A cinematic shot of a cat.", "none", False) == "A cinematic shot of a cat."  # 이미 비슷한 말이 있으면 magic 안 붙임
+assert app.plain("고양이, 4K", "photo", False).count("4K") == 1 and "Ultra HD" not in app.plain("고양이, 4K", "photo", False)
+assert "Ultra HD" not in app.plain('포스터, 제목 "안전"', "poster", True) and "Ultra HD" not in app.plain("산", "watercolor", False)
+assert app.with_tail("a watercolor painting, soft washes", "watercolor painting, soft washes, paper texture") == "a watercolor painting, soft washes, paper texture"
+assert app.tidy('"Dark street ,  shadows., , Ultra HD,, 4K ."') == "Dark street, shadows. Ultra HD, 4K."
+for st in app.STYLES:
+    t = app.plain("A dog.", st, app.STYLES[st][2])
+    assert ".," not in t and ",," not in t and " ," not in t and t.lower().count("ultra hd") <= 1, (st, t)
+assert set(app.STYLE_CUES) == set(app.STYLES)
+
+# 2-2) 따옴표 문구: 사용자가 준 것만, 지어낸 건 한 번 다시 쓰게 하고 그래도 남으면 그 문장째 뺌
+REQ = "2026년 12월 3일 대한민국에서 일어난 비상계엄 상황을 그려줘"
+assert app.quotes('제목 "책 읽는 가을", 부제 \'함께\' 「가」', user=True) == ["책 읽는 가을", "함께", "가"]
+assert app.quotes("the kitten's fur and the dog's tail") == []  # 아포스트로피는 문구 아님
+assert app.invented_quotes('A billboard reads "2026년 12월 3일 비상계엄". Soldiers stand.', REQ) == ["2026년 12월 3일 비상계엄"]
+assert app.invented_quotes('A poster titled "책 읽는 가을".', '가을 포스터, 제목 "책 읽는 가을"') == []
+assert app.invented_quotes('A sign reads "비상계엄".', REQ) == ["비상계엄"]  # 요청 속 낱말이라도 따옴표로 준 게 아니면 지어낸 것
+PLAN = json.dumps({"subject": "soldiers at a barricade", "setting": "Seoul street with police buses", "avoid": "text, logos", "added_ko": ["장소 디테일", "조명"]})
+BODY = "Soldiers in winter uniforms stand at a barricade on a wide Seoul avenue lined with police buses and bare ginkgo trees, citizens holding phones behind them, street lamps casting sodium orange light on wet asphalt, eye-level view from the sidewalk across six lanes of traffic."
+def fake_llm(replies):
+    calls = []
+    def f(system, user, temperature=0.4, as_json=False):
+        calls.append((system, user, temperature, as_json))
+        return PLAN if as_json else replies[min(len([c for c in calls if not c[3]]) - 1, len(replies) - 1)]
+    f.calls = calls; return f
+app.llm = fake_llm([BODY + ' A billboard displays "2026년 12월 3일 비상계엄" in white letters.', BODY])
+r = app.refine(REQ, "none", False)
+assert r["final_prompt"].startswith("Soldiers") and '"' not in r["final_prompt"], r
+comp = [c for c in app.llm.calls if not c[3]]
+assert len(comp) == 2 and "Remove the quoted text" in comp[1][1] and all(c[2] == 0.3 for c in app.llm.calls), comp
+assert r["summary_ko"] == "추가한 것: 장소 디테일·조명" and r["avoid"][:2] == ["text", "logos"], r
+app.llm = fake_llm([BODY + ' A billboard displays "비상계엄" in white letters. Cold night air.'])  # 다시 써도 남으면 그 문장만 뺌
+r = app.refine(REQ, "none", False)
+assert "비상계엄" not in r["final_prompt"] and "billboard" not in r["final_prompt"] and r["final_prompt"].endswith("Cold night air."), r
+app.llm = fake_llm(['A poster with the title "책 읽는 가을" at the top, ' + BODY])
+r = app.refine('가을 포스터, 제목 "책 읽는 가을"', "poster", True)
+assert '"책 읽는 가을"' in r["final_prompt"] and len([c for c in app.llm.calls if not c[3]]) == 1, r  # 사용자 문구는 그대로, 다시 안 씀
+assert '"책 읽는 가을"' in app.llm.calls[1][0] and "No other words" in app.llm.calls[1][0]  # 시스템 지시에 문구를 정확히 넘김
+assert r["avoid"] == ["logos"], r  # 글자 넣는 그림이면 네거티브에서 text 류는 뺌
+app.llm = fake_llm([BODY])
+r = app.refine(REQ, "none", False)
+assert "no written words" in app.llm.calls[1][0] and "text, logos" in ", ".join(r["avoid"])
+
+# 2-3) 상투어: 사용자가 부르지 않았으면 다시 쓰게, 그래도 남으면 지움 / 영화 같은 걸 원하면 그대로
+HYPE = "A cinematic, moody shot. " + BODY + " Epic atmosphere, 4K."
+app.llm = fake_llm([HYPE])
+r = app.refine(REQ, "none", False)
+low = r["final_prompt"].lower()
+assert not any(w in low for w in ("cinematic", "moody", "epic", "4k")) and ".," not in low and " ," not in low and "  " not in low, r
+assert "Do not use the words" in [c for c in app.llm.calls if not c[3]][1][1]
+app.llm = fake_llm(["A cinematic wide shot. " + BODY])
+assert "cinematic" in app.refine("영화 같은 서울 밤거리", "none", False)["final_prompt"]
+
+# 2-4) 스타일이 그림 모델까지 감: 작성 지시에 매체 단서, 결과에 매체 말이 없으면 앞에 붙임, 다듬기엔 magic 안 붙음
+app.llm = fake_llm([BODY])
+r = app.refine("안개 낀 지리산", "watercolor", False)
+assert r["final_prompt"].startswith("Watercolor painting. Soldiers") and "wet-on-wet" in app.llm.calls[1][0], r
+app.llm = fake_llm(["A watercolor painting of misty ridges. " + BODY])
+assert app.refine("안개 낀 지리산", "watercolor", False)["final_prompt"].startswith("A watercolor painting")
+app.llm = fake_llm([BODY]); app.worker = fake_worker
+g = app.generate("벚꽃길 자전거 소녀", "anime", "1:1", 1, "fast", 1)
+assert seen[-1][1]["prompt"].startswith("Anime illustration. ") and "Ultra HD" not in seen[-1][1]["prompt"] and "cel shading" not in seen[-1][1]["prompt"]
+assert "text, logos" in seen[-1][1]["negative"] and "nsfw" in seen[-1][1]["negative"] and g["auto_negative"].startswith("text, logos")
+# 고친 문장으로 그리기(exact): 꼬리말 없이 그대로
+g = app.generate("A quiet street at dawn.", "photo", "1:1", 1, "fast", 1, enhance=False, exact=True)
+assert seen[-1][1]["prompt"] == "A quiet street at dawn." and g["final_prompt"] == "A quiet street at dawn."
+# LLM 이 죽으면 원문 + 꼬리(다듬기 없을 때와 같음)
+def dead(*a, **k): raise OSError("LLM 꺼짐")
+app.llm = dead
+g = app.generate("고양이", "photo", "1:1", 1, "fast", 1)
+assert seen[-1][1]["prompt"] == app.plain("고양이", "photo", False)
+for x in (g,): app.delete(x["run_id"]); shutil.rmtree(os.path.join(app.WS, ".trash", x["run_id"]))
+for rid in [x["run_id"] for x in app.list_runs() if x["run_id"] not in (m["run_id"], m2["run_id"])]:
+    shutil.rmtree(os.path.join(app.WS, rid))
 
 # 3) 고치기: 갤러리 그림을 원본으로
 src = app.resolve(f"{m['run_id']}/img_0.png")
@@ -60,7 +138,7 @@ assert "wqkgMjAyNiBnZ2dnODY1NyDCtyBkb25nanVraW0uZGV2QGdtYWlsLmNvbQ==" in _src an
 assert "data-sig" in app.signed(app.HTML)
 
 # 6) 포털 작업 알림(🔔): 환경변수 없으면 notify 는 False 이고 그리기는 그대로 / 가짜 포털에 running → done 이 토큰 헤더와 함께 간다
-import threading, urllib.request
+import threading, urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import portal_jobs
 for k in ("PORTAL_JOBS_URL", "PORTAL_JOBS_TOKEN", "PORTAL_JOBS_TOOL"): os.environ.pop(k, None)
@@ -88,6 +166,18 @@ assert st[1]["user"] == "alice" and st[1]["title"].startswith("그림 생성") a
 app.worker = boom; del GOT[:]
 assert "error" in sse("/api/edit", {"instruction": "실패", "refs": [f"{e['run_id']}/img_0.png"]})[-1]; portal_jobs.flush()
 assert [g[1]["status"] for g in GOT] == ["running", "failed"] and app.WS not in GOT[-1][1]["message"] and GOT[-1][1]["title"].startswith("그림 고치기"), GOT
+# 다듬기만 보기 API: 그리지 않고 문장·한 줄 설명 / LLM 이 죽으면 fallback
+app.llm = fake_llm([BODY])
+def post(path, body):
+    r = urllib.request.Request(f"http://127.0.0.1:{tool.server_address[1]}{path}", json.dumps(body).encode(), {"Content-Type": "application/json"})
+    try: return json.load(urllib.request.urlopen(r))
+    except urllib.error.HTTPError as x: return {"code": x.code, **json.load(x)}
+j = post("/api/refine", {"prompt": REQ, "style": "photo"})
+assert j["final_prompt"].startswith("Photograph. Soldiers") and j["summary_ko"].startswith("추가한 것:") and "text" in j["negative"], j
+app.llm = dead
+j = post("/api/refine", {"prompt": "고양이", "style": "illust"})
+assert j["fallback"] and j["final_prompt"] == app.plain("고양이", "illust", False), j
+assert post("/api/refine", {"prompt": " "})["code"] == 400
 tool.shutdown(); portal.shutdown()
 for k in ("PORTAL_JOBS_URL", "PORTAL_JOBS_TOKEN", "PORTAL_JOBS_TOOL"): os.environ.pop(k, None)
 

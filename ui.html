@@ -56,7 +56,12 @@
     <label title="짧은 한국어 요청을 그림 모델이 잘 알아듣는 자세한 영어 프롬프트로 바꿔 줍니다"><input type="checkbox" id="enhance" checked> 프롬프트 다듬기(LLM)</label>
   </div>
   <details><summary class="note" style="cursor:pointer">빼고 싶은 것 (선택)</summary><input type="text" id="neg" placeholder="예) 글자, 워터마크, 흐릿함" style="width:100%;margin-top:6px"></details>
-  <p><button class="primary" id="go-gen" onclick="gen()">그리기</button> <span class="note">1장 약 30초~1분 · 처음 한 번은 모델을 올리느라 1~2분 더</span></p>
+  <p><button class="primary" id="go-gen" onclick="gen()">그리기</button> <button id="go-refine" onclick="refineOnly()" title="그리지 않고 LLM 이 다듬은 영어 프롬프트만 봅니다. 고친 뒤 그 문장 그대로 그릴 수 있어요">다듬기만 보기</button> <span class="note">1장 약 30초~1분 · 처음 한 번은 모델을 올리느라 1~2분 더</span></p>
+  <div id="refine-box" hidden>
+    <div class="note" id="refine-sum"></div>
+    <textarea id="refined" aria-label="다듬은 프롬프트(고칠 수 있음)"></textarea>
+    <p><button id="go-refined" onclick="genRefined()">이 문장 그대로 그리기</button> <span class="note">다듬기 없이 이 문장을 그대로 그림 모델에 보냅니다</span></p>
+  </div>
   <div id="gen-prog" class="prog"></div><div class="bar" id="gen-bar" hidden><i></i></div>
   <div id="gen-final" class="note"></div>
   <div class="results" id="gen-out"></div>
@@ -138,6 +143,25 @@ async function gen() {
   try { await stream('api/generate', { prompt, style: STYLE, ratio: RATIO, n: $('n').value, quality: $('quality').value, seed: $('seed').value, negative: $('neg').value, enhance: $('enhance').checked }, 'gen'); }
   catch (e) { $('gen-prog').textContent = '⚠️ ' + e; }
   finally { $('go-gen').disabled = false; }
+}
+let REFINED_NEG = '';
+async function refineOnly() {  // 다듬기만: 그리지 않고 문장·한 줄 설명을 고칠 수 있게 보여 줌
+  const prompt = $('prompt').value.trim(); if (!prompt) return $('prompt').focus();
+  $('go-refine').disabled = true; $('refine-box').hidden = false; $('refine-sum').textContent = '다듬는 중…'; $('refined').value = '';
+  try {
+    const j = await fetch('api/refine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, style: STYLE }) }).then(r => r.json());
+    if (j.error) { $('refine-sum').textContent = '⚠️ ' + j.error; return; }
+    $('refined').value = j.final_prompt; $('refine-sum').textContent = j.summary_ko; REFINED_NEG = j.negative || '';
+  } catch (e) { $('refine-sum').textContent = '⚠️ ' + e; }
+  finally { $('go-refine').disabled = false; }
+}
+async function genRefined() {
+  const prompt = $('refined').value.trim(); if (!prompt) return $('refined').focus();
+  $('go-refined').disabled = true; $('go-gen').disabled = true; $('gen-final').textContent = '';
+  const negative = [$('neg').value, REFINED_NEG].filter(Boolean).join(', ');
+  try { await stream('api/generate', { prompt, style: STYLE, ratio: RATIO, n: $('n').value, quality: $('quality').value, seed: $('seed').value, negative, enhance: false, exact: true }, 'gen'); }
+  catch (e) { $('gen-prog').textContent = '⚠️ ' + e; }
+  finally { $('go-refined').disabled = false; $('go-gen').disabled = false; }
 }
 async function edit() {
   const instruction = $('instr').value.trim();

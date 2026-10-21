@@ -39,25 +39,195 @@ QUALITY = {"fast": ("빠르게", 20), "normal": ("보통", 30), "high": ("고품
 SAFE_NEG = "nsfw, nude, nudity, nipples, explicit, gore, child nudity"  # 사내 포털 도구 — 어떤 프롬프트에도 붙는다
 
 
-def llm(system, user):
+def llm(system, user, temperature=0.4, as_json=False):
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if LLM_API == "openai":
-        url, body = LLM_BASE + "/chat/completions", {"model": LLM_MODEL, "messages": msgs, "temperature": 0.4}
+        url, body = LLM_BASE + "/chat/completions", {"model": LLM_MODEL, "messages": msgs, "temperature": temperature}
+        if as_json: body["response_format"] = {"type": "json_object"}
     else:
-        url, body = LLM_BASE + "/api/chat", {"model": LLM_MODEL, "messages": msgs, "stream": False, "think": False, "options": {"temperature": 0.4}}
+        url, body = LLM_BASE + "/api/chat", {"model": LLM_MODEL, "messages": msgs, "stream": False, "think": False, "options": {"temperature": temperature}}
+        if as_json: body["format"] = "json"
     with urllib.request.urlopen(urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json", **({"Authorization": "Bearer " + LLM_KEY} if LLM_KEY else {})}), timeout=300) as r:   # vLLM 대기열 고려
         j = json.load(r)
     out = (j["choices"][0]["message"] if LLM_API == "openai" else j["message"]).get("content") or ""   # vLLM 은 빈 응답에 null
     return re.sub(r"<think>.*?</think>", "", out, flags=re.S).strip()
 
 
+# ── 프롬프트 다듬기 ─────────────────────────────────────────────────────
+# 1) 요청 → 장면 계획(JSON 칸) 2) 계획 → 영어 한 문단(40~80단어) 3) 서버가 검사: 지어낸 따옴표 문구·상투어·길이 → 한 번 다시, 그래도 남으면 잘라냄
+MAGIC = "Ultra HD, 4K, cinematic composition"  # Qwen-Image 공식 positive magic — 다듬기 없이 그대로/사진일 때만, 이미 비슷한 말이 있으면 안 붙임
+MAGIC_STYLES = ("none", "photo")
+STYLE_CUES = {  # 스타일이 문단의 매체·표현을 정하게: (문단에 꼭 있어야 할 말, 없으면 앞에 붙일 말, 작성 지시)
+    "none": (None, "", "Pick the medium the request implies; if it implies none, describe it as a natural, realistic photograph. Do not call it a film still."),
+    "photo": (r"photo", "Photograph.", "It is a photograph: name a plausible lens (e.g. 35mm, 50mm, 85mm), the real light source and its direction, depth of field, and color rendering (e.g. neutral digital, Kodak Portra-like film)."),
+    "illust": (r"illustrat", "Digital illustration.", "It is a digital illustration: describe line quality, shape language, flat or textured fills and a limited palette by naming the colors."),
+    "3d": (r"3d|render", "3D render.", "It is a 3D render: name the materials (clay, matte plastic, glass, wood), the lighting setup (soft global illumination, area lights), and the backdrop."),
+    "anime": (r"anime", "Anime illustration.", "It is a 2D anime illustration: cel shading, crisp line art, character design details (hair, clothing), background art style."),
+    "watercolor": (r"watercolou?r", "Watercolor painting.", "It is a watercolor painting: wet-on-wet washes, pigment blooms, soft edges, white paper left as highlights, visible cold-press paper grain."),
+    "poster": (r"poster|infographic", "Flat graphic poster.", "It is a flat graphic poster or infographic: describe the layout grid, visual hierarchy, where each text element sits, simple icons or chart shapes, two or three named colors."),
+    "logo": (r"logo", "Flat vector logo.", "It is a flat vector logo mark: geometry, negative space, one to three named colors, plain background, centered, nothing else around it."),
+    "product": (r"product", "Studio product photograph.", "It is a studio product photograph: backdrop, softbox or light placement, reflections and contact shadow, camera angle, lens."),
+}
+OVERUSED = ["cinematic", "moody", "high-contrast", "high contrast", "ultra hd", "ultra-detailed", "highly detailed", "4k", "8k", "masterpiece", "breathtaking",
+            "stunning", "epic", "hyper-realistic", "hyperrealistic", "photorealistic", "award-winning", "dramatic lighting", "best quality", "trending on artstation"]
+OVERUSED_KO = {"cinematic": ("영화", "시네마"), "moody": ("무드",), "high-contrast": ("대비",), "high contrast": ("대비",), "4k": ("4k",), "8k": ("8k",),
+               "hyper-realistic": ("극사실", "하이퍼"), "hyperrealistic": ("극사실", "하이퍼"), "photorealistic": ("실사", "사실적"), "epic": ("웅장", "장엄"),
+               "dramatic lighting": ("극적",), "ultra hd": ("고화질",), "highly detailed": ("디테일",), "ultra-detailed": ("디테일",)}
+ADDED_KO = {"setting": "장소 디테일", "time_light": "시간·조명", "composition": "구도", "mood": "분위기", "medium": "표현 방식"}
+_Q_OUT = r'"([^"\n]{1,80})"|“([^”\n]{1,80})”|‘([^’\n]{1,80})’|「([^」\n]{1,80})」|『([^』\n]{1,80})』'
+_Q_USER = _Q_OUT + r"|'([^'\n]{1,80})'"  # 사용자 문장의 '…' 도 문구로 본다(영어 출력의 ' 는 아포스트로피라 뺌)
+
+
+def quotes(text, user=False):
+    """따옴표 안 문구들(그림에 들어갈 글자)"""
+    return [next(g for g in m.groups() if g is not None).strip() for m in re.finditer(_Q_USER if user else _Q_OUT, text or "")]
+
+
+def _norm(s):
+    return re.sub(r"\s+", " ", s or "").strip().lower()
+
+
+def invented_quotes(out, request):
+    """다듬은 문장 속 따옴표 문구 중 사용자가 따옴표로 주지 않은 것(요청 속 낱말이라도 따옴표가 없으면 그림 글자로 안 넣음)"""
+    given = [_norm(q) for q in quotes(request, user=True)]
+    return [q for q in quotes(out) if q and not any(_norm(q) in g for g in given)]
+
+
+def overused(out, request, style):
+    """사용자·스타일이 부르지 않은 상투어"""
+    req, low = _norm(request), out.lower()
+    allowed = _norm(STYLES[style][1] + " " + STYLE_CUES[style][2])
+    return [w for w in OVERUSED if re.search(rf"(?<![\w-]){re.escape(w)}(?![\w-])", low) and w not in req and w not in allowed
+            and not any(k in req for k in OVERUSED_KO.get(w, ()))]
+
+
+def tidy(text):
+    """빈칸·쉼표·마침표 정리: '., ,' · ' ,' · ',,' · '..' 같은 것"""
+    t = re.sub(r"\s+", " ", text or "").strip()
+    if len(t) > 1 and t[0] == t[-1] == '"' and t.count('"') == 2: t = t[1:-1].strip()  # LLM 이 답 전체를 따옴표로 감싼 경우만
+    t = re.sub(r"\s+([,.;:!?])", r"\1", t)
+    t = re.sub(r"([,;:])(?:\s*[,;:])+", r"\1", t)
+    t = re.sub(r"\.(?:\s*[,.;:])+", ".", t)
+    t = re.sub(r",\s*\.", ".", t)
+    t = re.sub(r"([,;])(?=[^\s\d,.;:!?\"”’)])", r"\1 ", t)
+    return t.strip(" ,;:")
+
+
+def with_tail(text, terms):
+    """꼬리말 붙이기 — 이미 들어 있는 말은 빼고, 문장 끝 구두점은 깔끔하게"""
+    low = (text or "").lower()
+    add = [t.strip() for t in terms.split(",")] if isinstance(terms, str) else list(terms)
+    add = [t for t in add if t and t.lower() not in low]
+    if not add: return tidy(text)
+    t = tidy(text)
+    return tidy(t + (" " if t.endswith((".", "!", "?")) else ", ") + ", ".join(add))
+
+
+def plain(prompt, style, text_style):
+    """다듬기 없이 보낼 문장: 원문 + 스타일 꼬리 + (그대로·사진이고 글자 디자인이 아니면) magic — 겹치지 않게"""
+    out = with_tail(prompt, STYLES[style][1])
+    if style in MAGIC_STYLES and not text_style and not re.search(r"cinematic|ultra ?hd|\b[48]k\b", out, re.I):
+        out = with_tail(out, MAGIC)
+    return out
+
+
+def _strip_quotes(text, bad):
+    """지어낸 문구가 든 문장을 통째로 뺀다(문장이 하나뿐이면 문구만 뺀다)"""
+    sents = re.split(r"(?<=[.!?])\s+", text)
+    keep = [s for s in sents if not any(q in s for q in bad)]
+    if keep: return " ".join(keep)
+    for q in bad: text = re.sub(r'(?:the (?:text|words?)\s*)?["“‘「『]' + re.escape(q) + r'["”’」』]', "", text)
+    return text
+
+
+def _strip_overused(text, words):
+    for w in words:
+        text = re.sub(rf"(?<![\w-]){re.escape(w)}(?![\w-])(?:\s*,)?", "", text, flags=re.I)
+    return re.sub(r"\b(a|an)\s+(?=[,.]|and\b)", "", tidy(text))
+
+
+def _trim(text, limit=90):
+    """너무 길면 문장 단위로 자름"""
+    if len(text.split()) <= limit: return text
+    out = []
+    for s in re.split(r"(?<=[.!?])\s+", text):
+        if out and len(" ".join(out + [s]).split()) > limit: break
+        out.append(s)
+    return " ".join(out)
+
+
+def _plan(prompt, style):
+    """요청 → 장면 계획 칸(JSON). 실패하면 빈 계획(요청만으로 문단을 씀)"""
+    sys_p = ("You plan a picture from a user's request (usually Korean) for a text-to-image model. Return only a JSON object with these English string keys: "
+             '"subject" (who/what and the action), "setting" (place with concrete, specific visual details), "time_light" (time of day, season, light source), '
+             '"composition" (framing, camera angle or viewpoint), "mood" (one or two plain words), "medium" (style/medium the user asked for, or ""), '
+             '"avoid" (list of short English things to keep out of the image), and "added_ko" (list of short Korean nouns naming which aspects you added that the user did not state, e.g. "장소 디테일", "조명", "구도", "색감").\n'
+             "Rules: Stay faithful: keep every element the user named and do not add people, objects, symbols or events that change the meaning. "
+             "When the request names a country, region, era or event, fill \"setting\" with recognisable details typical of that place and time (architecture, vehicles, uniforms, clothing, street furniture, vegetation, weather) from general knowledge, not a generic city. "
+             "A request written in Korean that names no place is set in South Korea (Korean school uniforms, streets, homes, food) unless its content points elsewhere. "
+             "Keep the user's facts exactly as given, even if they look wrong; do not correct dates, names or places. Dates and names are context, never visible text. "
+             "Never include real, identifiable people (politicians, celebrities); use anonymous people. "
+             "Use plain, specific words, not hype words such as cinematic, epic, stunning, moody, masterpiece, 4K.")
+    try:
+        raw = llm(sys_p, f"[요청] {prompt}\n[스타일] {STYLES[style][0]}", temperature=0.3, as_json=True)
+        j = json.loads(re.search(r"\{.*\}", raw, re.S).group(0))
+        return j if isinstance(j, dict) else {}
+    except Exception:
+        return {}
+
+
+def _compose(prompt, plan, style, user_q, text_style, note=""):
+    cue = STYLE_CUES[style][2]
+    if user_q:
+        txt = ("Text in the image: include exactly these strings, each in double quotes, unchanged and untranslated, and say where each one appears: "
+               + ", ".join(f'"{q}"' for q in user_q) + ". No other words, letters or numbers anywhere in the image.")
+    else:
+        txt = ("The image has no written words: no readable signs, captions, dates, labels, logos or watermarks. Do not use quotation marks at all."
+               + (" Use icons, shapes and chart forms instead of words." if text_style else ""))
+    sys_p = ("You write one prompt for the Qwen-Image text-to-image model from a user's request and a scene plan. Output only the prompt: one natural English paragraph of 40-80 words, "
+             "plain declarative sentences, concrete nouns and specific details rather than adjectives. Begin with the medium and the main subject, then the setting details, light and time, composition, and mood in plain words.\n"
+             f"- Medium: {cue}\n- {txt}\n"
+             "- Stay faithful to the request; do not add elements that change its meaning, and do not correct the user's facts.\n"
+             "- No real, identifiable people; anonymous figures only.\n"
+             "- Do not use these over-used words unless the request itself asks for them: " + ", ".join(OVERUSED) + ".")
+    usr = f"[요청] {prompt}\n[장면 계획] {json.dumps({k: v for k, v in plan.items() if k != 'added_ko'}, ensure_ascii=False) if plan else '(없음 — 요청만 보고 쓰기)'}"
+    if note: usr += f"\n[고칠 점] {note}"
+    return tidy(llm(sys_p, usr, temperature=0.3))
+
+
 def refine(prompt, style, text_style):
-    """한국어·짧은 요청 → 그림 모델용 영어 프롬프트. 따옴표 안 글자(그림에 들어갈 문구)는 원문 그대로 둔다."""
-    out = llm("You rewrite a user's image request into one English prompt for a text-to-image model. Output only the prompt, 40-90 words. "
-              "Describe subject, composition, setting, lighting, colors. Keep any text that must appear in the image EXACTLY as given, in double quotes, "
-              "and say where it appears. Do not add other text, logos or watermarks. Do not depict real, famous people.",
-              f"[요청] {prompt}\n[스타일] {STYLES[style][1] or '알아서'}" + ("\n[주의] 글자가 들어가는 디자인 — 문구는 짧고 정확하게" if text_style else ""))
-    return out.strip().strip('"') or prompt   # LLM 이 빈 답이면 원문 그대로
+    """한국어·짧은 요청 → 그림 모델용 영어 프롬프트 + 무엇을 보탰는지 한 줄 + 빼야 할 것.
+    따옴표 안 글자(그림에 들어갈 문구)는 원문 그대로, 사용자가 따옴표로 준 것만 그림에 넣는다."""
+    user_q = quotes(prompt, user=True)
+    plan = _plan(prompt, style)
+    out = _compose(prompt, plan, style, user_q, text_style)
+    if not out: return {"final_prompt": plain(prompt, style, text_style), "summary_ko": "다듬기 결과가 비어 원문 그대로 씁니다", "avoid": []}
+    bad, hype, n = invented_quotes(out, prompt), overused(out, prompt, style), len(out.split())
+    if bad or hype or not 30 <= n <= 100:
+        note = " ".join(x for x in (
+            f"Remove the quoted text {', '.join(repr(q) for q in bad)}: the user did not ask for it, so the image must not contain it." if bad else "",
+            f"Do not use the words: {', '.join(hype)}; describe what is actually seen instead." if hype else "",
+            f"It was {n} words; write 40-80 words." if not 30 <= n <= 100 else "") if x)
+        try:
+            again = _compose(prompt, plan, style, user_q, text_style, note)
+            out = again or out
+        except Exception:
+            pass
+    bad = invented_quotes(out, prompt)
+    if bad: out = _strip_quotes(out, bad)
+    hype = overused(out, prompt, style)
+    if hype: out = _strip_overused(out, hype)
+    out = _trim(tidy(out))
+    key, lead, _ = STYLE_CUES[style]
+    if key and not re.search(key, out, re.I): out = lead + " " + out  # 스타일이 그림 모델까지 꼭 가게
+    added = [x for x in (plan.get("added_ko") or []) if isinstance(x, str) and x.strip()][:5] or \
+            [v for k, v in ADDED_KO.items() if str(plan.get(k) or "").strip()]
+    avoid = plan.get("avoid") or []
+    avoid = [x.strip() for x in (avoid.split(",") if isinstance(avoid, str) else avoid) if isinstance(x, str) and x.strip()][:6]  # 문자열로 오기도 함
+    if user_q or text_style:  # 글자를 넣는 그림이면 네거티브에 글자 관련 말을 넣지 않음(제목까지 지워짐)
+        avoid = [a for a in avoid if not re.search(r"text|letter|word|typograph|font|caption|label|title", a, re.I)]
+    elif not any("text" in a.lower() for a in avoid): avoid.append("text, watermark")
+    return {"final_prompt": tidy(out), "summary_ko": "추가한 것: " + ("·".join(added) if added else "영어로 옮기기"), "avoid": avoid}
 
 
 def worker_env(env=None, smi_ids=None):
@@ -126,28 +296,29 @@ def save_meta(d, meta):
     json.dump(meta, open(os.path.join(d, "meta.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
-def generate(prompt, style="none", ratio="1:1", n=1, quality="normal", seed=None, negative="", enhance=True, emit=lambda ev: None, ws=WS):
+def generate(prompt, style="none", ratio="1:1", n=1, quality="normal", seed=None, negative="", enhance=True, emit=lambda ev: None, ws=WS, exact=False):
+    """exact=True: 받은 문장을 꼬리말 없이 그대로 보냄('다듬기만 보기'에서 고친 문장으로 그릴 때)"""
     if not prompt.strip(): raise ValueError("무엇을 그릴지 써 주세요")
     style = style if style in STYLES else "none"; ratio = ratio if ratio in RATIOS else "1:1"; quality = quality if quality in QUALITY else "normal"
     n = max(1, min(int(n or 1), 4)); seed = int(seed) if str(seed or "").strip().lstrip("-").isdigit() else secrets.randbelow(10 ** 9)
-    text_style = STYLES[style][2] or bool(re.search(r"[\"“”'‘’「」]", prompt))
-    final = prompt
-    if enhance:
+    text_style = STYLES[style][2] or bool(quotes(prompt, user=True))
+    final, auto_neg = (prompt.strip() if exact else plain(prompt, style, text_style)), []
+    if enhance and not exact:
         emit({"stage": "prompt", "msg": "요청을 그림 프롬프트로 다듬는 중"})
         try:
-            final = refine(prompt, style, text_style)
+            r = refine(prompt, style, text_style)
+            final, auto_neg = r["final_prompt"], r["avoid"]
         except Exception as e:
             emit({"stage": "prompt", "msg": f"다듬기 건너뜀({type(e).__name__}) — 원문 그대로"})
-    if STYLES[style][1] and not enhance: final += ", " + STYLES[style][1]
-    if not text_style: final += ", Ultra HD, 4K, cinematic composition"  # 글자 디자인엔 붙이지 않음(그림에 글자로 찍힘)
     rid, d = new_run(ws)
     w, h = RATIOS[ratio]
     meta = {"run_id": rid, "kind": "generate", "prompt": prompt, "final_prompt": final, "negative": negative, "style": style, "ratio": ratio,
+            **({"auto_negative": ", ".join(auto_neg)} if auto_neg else {}),
             "quality": quality, "seed": seed, "n": n, "ts": datetime.datetime.now().isoformat(timespec="seconds")}
     save_meta(d, meta)
     emit({"stage": "draw", "msg": f"그리는 중 ({n}장, {QUALITY[quality][0]})", "run_id": rid, "final_prompt": final})
     try:
-        worker("/generate", {"prompt": final, "negative": ", ".join(x for x in (negative, SAFE_NEG) if x), "width": w, "height": h, "n": n,
+        worker("/generate", {"prompt": final, "negative": ", ".join(x for x in (negative, *auto_neg, SAFE_NEG) if x), "width": w, "height": h, "n": n,
                              "seed": seed, "steps": QUALITY[quality][1], "out_dir": d}, lambda ev: emit({**_scrub(ev), "run_id": rid}))
     except Exception:
         shutil.rmtree(d, ignore_errors=True); raise  # 실패한 건 흔적 없이
@@ -269,6 +440,15 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/delete":
             try: return self._send(delete(req.get("run_id"), ws))
             except ValueError as e: return self._send({"error": str(e)}, code=400)
+        if self.path == "/api/refine":  # 다듬기만 보기: 그리지 않고 다듬은 문장·한 줄 설명만
+            prompt, style = str(req.get("prompt") or "").strip(), req.get("style") if req.get("style") in STYLES else "none"
+            if not prompt: return self._send({"error": "무엇을 그릴지 써 주세요"}, code=400)
+            ts = STYLES[style][2] or bool(quotes(prompt, user=True))
+            try:
+                r = refine(prompt, style, ts)
+                return self._send({"final_prompt": r["final_prompt"], "summary_ko": r["summary_ko"], "negative": ", ".join(r["avoid"])})
+            except Exception as e:
+                return self._send({"final_prompt": plain(prompt, style, ts), "summary_ko": f"다듬기를 못 했습니다({type(e).__name__}) — 원문에 스타일 꼬리말만 붙였어요", "negative": "", "fallback": True})
         if self.path not in ("/api/generate", "/api/edit"):
             return self._send({"error": "not found"}, code=404)
         self.send_response(200); self.send_header("Content-Type", "text/event-stream; charset=utf-8"); self.send_header("Cache-Control", "no-cache"); self.end_headers()
@@ -283,7 +463,7 @@ class H(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/generate":
                 r = generate(req.get("prompt") or "", req.get("style"), req.get("ratio"), req.get("n"), req.get("quality"), req.get("seed"),
-                             req.get("negative") or "", req.get("enhance", True), emit, ws)
+                             req.get("negative") or "", req.get("enhance", True), emit, ws, bool(req.get("exact")))
             else:
                 srcs = [resolve(x, ws) for x in req.get("refs") or []]
                 up = os.path.join(ws, "_upload"); os.makedirs(up, exist_ok=True)
