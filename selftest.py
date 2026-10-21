@@ -178,6 +178,35 @@ app.llm = dead
 j = post("/api/refine", {"prompt": "고양이", "style": "illust"})
 assert j["fallback"] and j["final_prompt"] == app.plain("고양이", "illust", False), j
 assert post("/api/refine", {"prompt": " "})["code"] == 400
+# 브라우저가 떠나도(첫 진행 이벤트 뒤 쓰기가 BrokenPipeError) 그리기는 끝까지 — 갤러리에 남고 🔔 done, 서버 오류·트레이스백 없음
+import io, sys
+class Cut:
+    def __init__(s, f, n): s.f, s.n = f, n
+    def write(s, b):
+        s.n -= 1
+        if s.n < 0: raise BrokenPipeError(32, "Broken pipe")
+        return s.f.write(b)
+    def flush(s): pass
+    def __getattr__(s, k): return getattr(s.f, k)
+class CutH(app.H):
+    def setup(s): super().setup(); s.wfile = Cut(s.wfile, 2)  # 응답 머리 + 첫 이벤트까지만 닿음
+ERRS = []
+class Srv(ThreadingHTTPServer):
+    def handle_error(s, req, addr): ERRS.append(sys.exc_info()[1])
+cut = Srv(("127.0.0.1", 0), CutH); threading.Thread(target=cut.serve_forever, daemon=True).start()
+app.worker = fake_worker; app.llm = dead; del GOT[:]
+AW = os.path.join(app.WS, "u", "alice")
+before, err0 = {x["run_id"] for x in app.list_runs(AW)}, sys.stderr; sys.stderr = cap = io.StringIO()
+try:
+    r = urllib.request.Request(f"http://127.0.0.1:{cut.server_address[1]}/api/generate", json.dumps({"prompt": "떠난 뒤 고양이", "n": 2}).encode(), {"X-Agent-User": "alice"})
+    got = urllib.request.urlopen(r).read().decode()
+finally:
+    sys.stderr = err0
+portal_jobs.flush(); cut.shutdown()
+new = [x for x in app.list_runs(AW) if x["run_id"] not in before]
+assert got.count("data: ") == 1 and len(new) == 1 and len(new[0]["images"]) == 2, (got, new)
+assert [g[1]["status"] for g in GOT] == ["running", "done"] and GOT[-1][1]["link"] == f"/?run={new[0]['run_id']}", GOT
+assert not ERRS and "Traceback" not in cap.getvalue() and cap.getvalue().count("연결 끊김") == 1, (ERRS, cap.getvalue())
 tool.shutdown(); portal.shutdown()
 for k in ("PORTAL_JOBS_URL", "PORTAL_JOBS_TOKEN", "PORTAL_JOBS_TOOL"): os.environ.pop(k, None)
 

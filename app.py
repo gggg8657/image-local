@@ -406,6 +406,21 @@ def signed(html):
 HTML = open(os.path.join(ROOT, "ui.html"), encoding="utf-8").read() if os.path.exists(os.path.join(ROOT, "ui.html")) else "ui.html 없음"
 
 
+def safe_emit(wfile):
+    """SSE 한 줄 쓰기. 브라우저가 떠나 연결이 끊기면(포털도 도구 쪽 연결을 닫음) 그 뒤 쓰기는 조용히 버린다 —
+    끊김은 취소가 아니라서 작업은 끝까지 하고 결과는 갤러리에 남고 🔔 알림은 완료로 간다"""
+    gone = []
+
+    def emit(ev):
+        if gone: return
+        b = f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()
+        try:
+            wfile.write(b); wfile.flush()
+        except OSError:  # BrokenPipe·ConnectionReset·ConnectionAborted·닫힌 소켓
+            gone.append(1); print("클라이언트 연결 끊김 — 작업은 계속", file=sys.stderr, flush=True)
+    return emit
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
@@ -452,9 +467,7 @@ class H(BaseHTTPRequestHandler):
         if self.path not in ("/api/generate", "/api/edit"):
             return self._send({"error": "not found"}, code=404)
         self.send_response(200); self.send_header("Content-Type", "text/event-stream; charset=utf-8"); self.send_header("Cache-Control", "no-cache"); self.end_headers()
-
-        def emit(ev):
-            self.wfile.write(f"data: {json.dumps(ev, ensure_ascii=False)}\n\n".encode()); self.wfile.flush()
+        emit = safe_emit(self.wfile)
         ups = []
         user, jid, kind = self.headers.get("X-Agent-User"), secrets.token_hex(6), "그림 생성" if self.path == "/api/generate" else "그림 고치기"
         title = f"{kind} · {(req.get('prompt') if self.path == '/api/generate' else req.get('instruction')) or ''}"[:60]
@@ -475,7 +488,7 @@ class H(BaseHTTPRequestHandler):
             portal_jobs.notify(user, "done", id=jid, title=title, link=f"/?run={r['run_id']}", message=f"{len(r['images'])}장"); noted = True
             emit({"done": r})
         except Exception as e:
-            if not noted:  # 다 그린 뒤 브라우저가 끊긴 경우는 '완료' 그대로
+            if not noted:
                 portal_jobs.notify(user, "failed", id=jid, title=title, link="/", message=_hide_paths(f"{type(e).__name__}: {e}")[:200])
             emit({"error": _hide_paths(f"{type(e).__name__}: {e}")})
         finally:
